@@ -212,7 +212,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen>
       'isFirstVisit': false,
       'initials': 'YT',
       'imageUrl':
-          'https://img.rocket.new/generatedImages/rocket_gen_img_1c2c344ce-1763299429241.png',
+          'https://img.rocket.new/generatedImages/rocket_gen_img_18a713e78-1763297858426.png',
       'semanticLabel':
           'Japanese woman with straight black hair, professional headshot',
       'gradientStart': 0xFF10B981,
