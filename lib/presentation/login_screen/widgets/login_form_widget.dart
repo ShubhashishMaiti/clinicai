@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/app_export.dart';
@@ -57,22 +58,45 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
       final password = _passwordController.text;
       await ApiService().login(email, password);
       if (mounted) {
+        setState(() => _isLoading = false);
         context.go(AppRoutes.dashboardScreen);
       }
-    } catch (e) {
-      String message = 'Invalid email or password. Please try again.';
-      if (e.toString().contains('Invalid credentials') ||
-          e.toString().contains('UNAUTHORIZED')) {
-        message = 'Invalid email or password. Please try again.';
-      } else if (e.toString().contains('Unable to reach') ||
-          e.toString().contains('SocketException') ||
-          e.toString().contains('Connection')) {
+    } on DioException catch (e) {
+      String message;
+      if (e.type == DioExceptionType.connectionError ||
+          e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout) {
         message = 'Unable to reach server. Please check your connection.';
+      } else if (e.response?.statusCode == 401) {
+        message = 'Invalid email or password. Please try again.';
+      } else {
+        final data = e.response?.data;
+        if (data is Map) {
+          final detail = data['detail'];
+          if (detail is Map) {
+            message =
+                detail['message'] as String? ??
+                'Login failed. Please try again.';
+          } else if (detail is String) {
+            message = detail;
+          } else {
+            message = 'Login failed. Please try again.';
+          }
+        } else {
+          message = 'Login failed. Please try again.';
+        }
       }
       if (mounted) {
         setState(() {
           _isLoading = false;
           _errorMessage = message;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'An unexpected error occurred. Please try again.';
         });
       }
     }

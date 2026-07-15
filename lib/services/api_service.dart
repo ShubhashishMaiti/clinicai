@@ -13,7 +13,7 @@ class ApiService {
 
   static const String baseUrl = String.fromEnvironment(
     'BACKEND_URL',
-    defaultValue: 'http://localhost:8001',
+    defaultValue: 'https://clinicai-4zu2.onrender.com',
   );
 
   late final Dio _dio =
