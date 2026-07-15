@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/app_export.dart';
+import '../../../services/api_service.dart';
 
 // TODO: Replace with [Riverpod/Bloc] auth provider for production JWT handling
 
@@ -51,29 +52,29 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
       _errorMessage = null;
     });
 
-    // TODO: Replace with [Riverpod/Bloc] auth call to /api/auth/login
-    await Future.delayed(const Duration(milliseconds: 800));
-
-    // Mock credential check
-    final email = _emailController.text.trim().toLowerCase();
-    final password = _passwordController.text;
-    final validCredentials = {
-      'dr.smith@clinic.com': 'Demo@123',
-      'dr.patel@clinic.com': 'Demo@123',
-      'dr.chen@clinic.com': 'Demo@123',
-      'admin@clinic.com': 'Admin@123',
-    };
-
-    if (validCredentials[email] == password) {
+    try {
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
+      await ApiService().login(email, password);
       if (mounted) {
         context.go(AppRoutes.dashboardScreen);
       }
-    } else {
-      setState(() {
-        _isLoading = false;
-        _errorMessage =
-            'Invalid credentials — use the demo accounts below to sign in';
-      });
+    } catch (e) {
+      String message = 'Invalid email or password. Please try again.';
+      if (e.toString().contains('Invalid credentials') ||
+          e.toString().contains('UNAUTHORIZED')) {
+        message = 'Invalid email or password. Please try again.';
+      } else if (e.toString().contains('Unable to reach') ||
+          e.toString().contains('SocketException') ||
+          e.toString().contains('Connection')) {
+        message = 'Unable to reach server. Please check your connection.';
+      }
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = message;
+        });
+      }
     }
   }
 
