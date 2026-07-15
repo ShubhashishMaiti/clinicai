@@ -45,9 +45,22 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
   }
 
   String _extractErrorMessage(DioException e) {
+    // Log full error details for debugging
+    // ignore: avoid_print
+    print('[LoginForm] DioException type=${e.type}');
+    // ignore: avoid_print
+    print('[LoginForm] DioException uri=${e.requestOptions.uri}');
+    // ignore: avoid_print
+    print('[LoginForm] DioException status=${e.response?.statusCode}');
+    // ignore: avoid_print
+    print('[LoginForm] DioException data=${e.response?.data}');
+    // ignore: avoid_print
+    print('[LoginForm] DioException message=${e.message}');
+
     // Connection / timeout errors
     if (e.type == DioExceptionType.connectionError) {
-      return 'Cannot connect to server. Please check your internet connection.';
+      final uri = e.requestOptions.uri.toString();
+      return 'Cannot connect to server ($uri). Check your internet connection.';
     }
     if (e.type == DioExceptionType.connectionTimeout ||
         e.type == DioExceptionType.sendTimeout) {
@@ -62,7 +75,6 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
     final responseData = e.response?.data;
 
     if (statusCode == 401) {
-      // Try to extract backend message
       if (responseData is Map) {
         final detail = responseData['detail'];
         if (detail is Map) {
@@ -82,7 +94,6 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
       return 'Server error ($statusCode). Please try again later.';
     }
 
-    // Try to extract any detail message
     if (responseData is Map) {
       final detail = responseData['detail'];
       if (detail is Map) {
@@ -93,7 +104,7 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
       }
     }
 
-    return 'Login failed (${statusCode ?? 'unknown error'}). Please try again.';
+    return 'Login failed (${statusCode ?? e.type.name}). Please try again.';
   }
 
   Future<void> _handleLogin() async {

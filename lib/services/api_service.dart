@@ -9,17 +9,16 @@ class ApiService {
   factory ApiService() => _instance;
   ApiService._internal();
 
-  static const String baseUrl = String.fromEnvironment(
-    'BACKEND_URL',
-    defaultValue: 'https://clinicai-4zu2.onrender.com',
-  );
+  // NOTE: String.fromEnvironment does NOT work at Flutter web runtime unless
+  // passed via --dart-define at compile time. Hardcode the URL directly.
+  static const String baseUrl = 'https://clinicai-4zu2.onrender.com';
 
   late final Dio _dio =
       Dio(
           BaseOptions(
             baseUrl: '$baseUrl/api',
-            connectTimeout: const Duration(seconds: 15),
-            receiveTimeout: const Duration(seconds: 20),
+            connectTimeout: const Duration(seconds: 30),
+            receiveTimeout: const Duration(seconds: 30),
             headers: {'Content-Type': 'application/json'},
           ),
         )
@@ -31,14 +30,44 @@ class ApiService {
   // ── Auth ────────────────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> login(String email, String password) async {
-    // Use a separate Dio instance for login — no auth interceptor needed,
-    // and we handle errors ourselves in the form widget.
+    // Debug: confirm the exact URL being hit at runtime
+    final loginUrl = '$baseUrl/api/auth/login';
+    // ignore: avoid_print
+    print('[ApiService] LOGIN → POST $loginUrl');
+
     final loginDio = Dio(
       BaseOptions(
         baseUrl: '$baseUrl/api',
-        connectTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 20),
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 30),
         headers: {'Content-Type': 'application/json'},
+      ),
+    );
+
+    // ignore: avoid_print
+    loginDio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          // ignore: avoid_print
+          print('[ApiService] Dio request → ${options.method} ${options.uri}');
+          handler.next(options);
+        },
+        onResponse: (response, handler) {
+          // ignore: avoid_print
+          print(
+            '[ApiService] Dio response → ${response.statusCode} from ${response.realUri}',
+          );
+          handler.next(response);
+        },
+        onError: (DioException e, handler) {
+          // ignore: avoid_print
+          print(
+            '[ApiService] Dio error → type=${e.type} status=${e.response?.statusCode} msg=${e.message}',
+          );
+          // ignore: avoid_print
+          print('[ApiService] Dio error uri → ${e.requestOptions.uri}');
+          handler.next(e);
+        },
       ),
     );
 
@@ -49,7 +78,6 @@ class ApiService {
 
     final data = resp.data as Map<String, dynamic>;
 
-    // Null-safe extraction — backend may return doctor_id as String or other type
     final token = data['access_token']?.toString() ?? '';
     final doctorId = data['doctor_id']?.toString() ?? '';
 
