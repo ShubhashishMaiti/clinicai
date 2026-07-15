@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import '../../../core/app_export.dart';
 import '../../../services/api_service.dart';
 
-// TODO: Replace with [Riverpod/Bloc] auth provider for production JWT handling
-
 class LoginFormWidget extends StatefulWidget {
   const LoginFormWidget({super.key});
 
@@ -46,8 +44,61 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
     super.dispose();
   }
 
+  String _extractErrorMessage(DioException e) {
+    // Connection / timeout errors
+    if (e.type == DioExceptionType.connectionError) {
+      return 'Cannot connect to server. Please check your internet connection.';
+    }
+    if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.sendTimeout) {
+      return 'Connection timed out. The server may be starting up — please try again in a moment.';
+    }
+    if (e.type == DioExceptionType.receiveTimeout) {
+      return 'Server took too long to respond. Please try again.';
+    }
+
+    // HTTP error responses
+    final statusCode = e.response?.statusCode;
+    final responseData = e.response?.data;
+
+    if (statusCode == 401) {
+      // Try to extract backend message
+      if (responseData is Map) {
+        final detail = responseData['detail'];
+        if (detail is Map) {
+          return detail['message']?.toString() ?? 'Invalid email or password.';
+        } else if (detail is String) {
+          return detail;
+        }
+      }
+      return 'Invalid email or password. Please try again.';
+    }
+
+    if (statusCode == 422) {
+      return 'Invalid request format. Please check your email and password.';
+    }
+
+    if (statusCode != null && statusCode >= 500) {
+      return 'Server error ($statusCode). Please try again later.';
+    }
+
+    // Try to extract any detail message
+    if (responseData is Map) {
+      final detail = responseData['detail'];
+      if (detail is Map) {
+        return detail['message']?.toString() ??
+            'Login failed. Please try again.';
+      } else if (detail is String) {
+        return detail;
+      }
+    }
+
+    return 'Login failed (${statusCode ?? 'unknown error'}). Please try again.';
+  }
+
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -56,47 +107,34 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
     try {
       final email = _emailController.text.trim();
       final password = _passwordController.text;
+
       await ApiService().login(email, password);
+
       if (mounted) {
         setState(() => _isLoading = false);
         context.go(AppRoutes.dashboardScreen);
       }
     } on DioException catch (e) {
-      String message;
-      if (e.type == DioExceptionType.connectionError ||
-          e.type == DioExceptionType.connectionTimeout ||
-          e.type == DioExceptionType.receiveTimeout) {
-        message = 'Unable to reach server. Please check your connection.';
-      } else if (e.response?.statusCode == 401) {
-        message = 'Invalid email or password. Please try again.';
-      } else {
-        final data = e.response?.data;
-        if (data is Map) {
-          final detail = data['detail'];
-          if (detail is Map) {
-            message =
-                detail['message'] as String? ??
-                'Login failed. Please try again.';
-          } else if (detail is String) {
-            message = detail;
-          } else {
-            message = 'Login failed. Please try again.';
-          }
-        } else {
-          message = 'Login failed. Please try again.';
-        }
-      }
+      final message = _extractErrorMessage(e);
       if (mounted) {
         setState(() {
           _isLoading = false;
           _errorMessage = message;
         });
       }
+    } on TypeError {
+      // Catches bad type casts in response parsing
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Unexpected server response. Please try again.';
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = 'An unexpected error occurred. Please try again.';
+          _errorMessage = e.toString().replaceFirst('Exception: ', '');
         });
       }
     }
@@ -156,6 +194,7 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
             TextFormField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
+              autocorrect: false,
               style: GoogleFonts.sora(
                 fontSize: 14,
                 fontWeight: FontWeight.w400,
@@ -252,7 +291,7 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
                           border: Border.all(
                             color: _rememberMe
                                 ? AppTheme.primary
-                                : AppTheme.outlineLight,
+                                : theme.colorScheme.outline,
                             width: 1.5,
                           ),
                           borderRadius: BorderRadius.circular(5),
@@ -269,7 +308,7 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
                       Text(
                         'Remember me',
                         style: GoogleFonts.sora(
-                          fontSize: 12,
+                          fontSize: 13,
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
@@ -285,68 +324,74 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(
-                    'Forgot Password?',
+                    'Forgot password?',
                     style: GoogleFonts.sora(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
                       color: AppTheme.primary,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
               ],
             ),
+            const SizedBox(height: 20),
 
             // Error message
             if (_errorMessage != null) ...[
-              const SizedBox(height: 16),
               Container(
-                padding: const EdgeInsets.all(12),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
-                  color: AppTheme.errorContainer,
+                  color: const Color(0xFFFEF2F2),
                   borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFCA5A5), width: 1),
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CustomIconWidget(
-                      iconName: 'error_outline',
-                      color: AppTheme.error,
-                      size: 16,
+                    const Icon(
+                      Icons.error_outline,
+                      color: Color(0xFFEF4444),
+                      size: 18,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         _errorMessage!,
                         style: GoogleFonts.sora(
-                          fontSize: 12,
-                          color: AppTheme.error,
-                          height: 1.4,
+                          fontSize: 13,
+                          color: const Color(0xFFDC2626),
+                          fontWeight: FontWeight.w400,
                         ),
                       ),
                     ),
                   ],
                 ),
               ),
+              const SizedBox(height: 16),
             ],
 
-            const SizedBox(height: 24),
-
-            // CTA Button with glow
+            // Sign In button
             AnimatedBuilder(
               animation: _glowAnim,
               builder: (context, child) {
                 return Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(14),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppTheme.primary.withOpacity(
-                          _glowAnim.value * 0.4,
-                        ),
-                        blurRadius: 20,
-                        spreadRadius: 0,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
+                    boxShadow: _isLoading
+                        ? []
+                        : [
+                            BoxShadow(
+                              color: AppTheme.primary.withAlpha(
+                                (_glowAnim.value * 80).toInt(),
+                              ),
+                              blurRadius: 16,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
                   ),
                   child: child,
                 );
@@ -354,14 +399,16 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
               child: SizedBox(
                 width: double.infinity,
                 height: 52,
-                child: FilledButton(
+                child: ElevatedButton(
                   onPressed: _isLoading ? null : _handleLogin,
-                  style: FilledButton.styleFrom(
+                  style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primary,
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: AppTheme.primary.withAlpha(160),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
+                    elevation: 0,
                   ),
                   child: _isLoading
                       ? const SizedBox(
@@ -369,15 +416,17 @@ class _LoginFormWidgetState extends State<LoginFormWidget>
                           height: 22,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
-                            color: Colors.white,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
                         )
                       : Text(
-                          'Sign In to ClinicAI',
+                          'Sign In',
                           style: GoogleFonts.sora(
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
-                            color: Colors.white,
+                            letterSpacing: 0.3,
                           ),
                         ),
                 ),

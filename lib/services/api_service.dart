@@ -1,7 +1,5 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:fluttertoast/fluttertoast.dart';
-import 'package:flutter/material.dart';
 
 const String _kToken = 'auth_token';
 const String _kDoctorId = 'doctor_id';
@@ -20,8 +18,8 @@ class ApiService {
       Dio(
           BaseOptions(
             baseUrl: '$baseUrl/api',
-            connectTimeout: const Duration(seconds: 10),
-            receiveTimeout: const Duration(seconds: 15),
+            connectTimeout: const Duration(seconds: 15),
+            receiveTimeout: const Duration(seconds: 20),
             headers: {'Content-Type': 'application/json'},
           ),
         )
@@ -33,13 +31,34 @@ class ApiService {
   // ── Auth ────────────────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> login(String email, String password) async {
-    final resp = await _dio.post(
+    // Use a separate Dio instance for login — no auth interceptor needed,
+    // and we handle errors ourselves in the form widget.
+    final loginDio = Dio(
+      BaseOptions(
+        baseUrl: '$baseUrl/api',
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 20),
+        headers: {'Content-Type': 'application/json'},
+      ),
+    );
+
+    final resp = await loginDio.post(
       '/auth/login',
       data: {'email': email, 'password': password},
     );
+
     final data = resp.data as Map<String, dynamic>;
-    await _saveToken(data['access_token'] as String);
-    await _saveDoctorId(data['doctor_id'] as String);
+
+    // Null-safe extraction — backend may return doctor_id as String or other type
+    final token = data['access_token']?.toString() ?? '';
+    final doctorId = data['doctor_id']?.toString() ?? '';
+
+    if (token.isEmpty) {
+      throw Exception('Server returned empty token');
+    }
+
+    await _saveToken(token);
+    await _saveDoctorId(doctorId);
     return data;
   }
 
@@ -290,39 +309,12 @@ class _AuthInterceptor extends Interceptor {
 }
 
 // ── Error Interceptor ─────────────────────────────────────────────────────────
+// NOTE: No toasts here — individual screens handle their own error UI.
+// This interceptor only re-throws so callers can handle errors themselves.
 
 class _ErrorInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    String message = 'Something went wrong';
-
-    if (err.type == DioExceptionType.connectionTimeout ||
-        err.type == DioExceptionType.receiveTimeout) {
-      message = 'Connection timed out. Check your internet.';
-    } else if (err.type == DioExceptionType.connectionError) {
-      message = 'Unable to reach server. Please try again.';
-    } else if (err.response != null) {
-      final data = err.response?.data;
-      if (data is Map) {
-        final detail = data['detail'];
-        if (detail is Map) {
-          message = detail['message'] as String? ?? message;
-        } else if (detail is String) {
-          message = detail;
-        }
-      }
-      if (err.response?.statusCode == 401) {
-        message = 'Session expired. Please log in again.';
-      }
-    }
-
-    Fluttertoast.showToast(
-      msg: message,
-      backgroundColor: const Color(0xFFEF4444),
-      textColor: Colors.white,
-      gravity: ToastGravity.TOP,
-    );
-
     handler.next(err);
   }
 }
