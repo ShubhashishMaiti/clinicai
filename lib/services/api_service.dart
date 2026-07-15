@@ -238,6 +238,18 @@ class ApiService {
     return resp.data as List<dynamic>;
   }
 
+  Future<Map<String, dynamic>> updateDoctor(
+    String doctorId,
+    Map<String, dynamic> data,
+  ) async {
+    final resp = await _dio.patch('/admin/doctors/$doctorId', data: data);
+    return resp.data as Map<String, dynamic>;
+  }
+
+  Future<void> deleteDoctor(String doctorId) async {
+    await _dio.delete('/admin/doctors/$doctorId');
+  }
+
   // ── Token helpers ────────────────────────────────────────────────────────────
 
   static Future<String?> getToken() async {
@@ -288,7 +300,7 @@ class _ErrorInterceptor extends Interceptor {
         err.type == DioExceptionType.receiveTimeout) {
       message = 'Connection timed out. Check your internet.';
     } else if (err.type == DioExceptionType.connectionError) {
-      message = 'No internet connection';
+      message = 'Unable to reach server. Please try again.';
     } else if (err.response != null) {
       final data = err.response?.data;
       if (data is Map) {

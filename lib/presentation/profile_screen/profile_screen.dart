@@ -4,6 +4,7 @@ import 'package:sizer/sizer.dart';
 
 import '../../theme/app_theme.dart';
 import '../../routes/app_routes.dart';
+import '../../services/api_service.dart';
 import 'package:go_router/go_router.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -18,19 +19,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _darkMode = false;
   bool _smsNotifications = true;
   bool _pushNotifications = true;
+  bool _isLoading = true;
 
-  final Map<String, dynamic> _doctor = {
-    'name': 'Dr. Sarah Smith',
-    'specialization': 'General Physician',
-    'email': 'dr.smith@clinic.com',
-    'phone': '+1 (415) 555-0101',
-    'clinicName': 'Bloom Family Clinic',
-    'clinicAddress': '123 Wellness Ave, San Francisco, CA',
-    'inboundPhone': '+14155550101',
-    'workingHours': '9:00 AM – 5:00 PM',
-    'workingDays': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
-    'breakTime': '1:00 PM – 2:00 PM',
-    'initials': 'SS',
+  Map<String, dynamic> _doctor = {
+    'name': '',
+    'specialization': '',
+    'email': '',
+    'phone': '',
+    'clinicName': '',
+    'clinicAddress': '',
+    'inboundPhone': '',
+    'workingHours': '',
+    'workingDays': <String>[],
+    'breakTime': '',
+    'initials': '',
     'isAdmin': false,
   };
 
@@ -43,6 +45,72 @@ class _ProfileScreenState extends State<ProfileScreen> {
     'Sat',
     'Sun',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final data = await ApiService().getProfile();
+      final name = (data['name'] as String? ?? '');
+      final parts = name.trim().split(' ');
+      final initials = parts.length >= 2
+          ? '${parts[0][0]}${parts[1][0]}'.toUpperCase()
+          : name.isNotEmpty
+          ? name[0].toUpperCase()
+          : '?';
+
+      // Parse working days
+      List<String> workingDays = [];
+      final rawDays = data['working_days'];
+      if (rawDays is List) {
+        workingDays = rawDays.map((d) => d.toString()).toList();
+      } else if (rawDays is Map) {
+        final dayMap = rawDays as Map<String, dynamic>;
+        const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        for (int i = 0; i < dayKeys.length; i++) {
+          if (dayMap[dayKeys[i]] == true) workingDays.add(dayLabels[i]);
+        }
+      }
+
+      // Parse working hours
+      String workingHours = '';
+      final rawHours = data['working_hours'];
+      if (rawHours is Map) {
+        final start = rawHours['start'] ?? '';
+        final end = rawHours['end'] ?? '';
+        workingHours = '$start – $end';
+      } else if (rawHours is String) {
+        workingHours = rawHours;
+      }
+
+      if (mounted) {
+        setState(() {
+          _doctor = {
+            'name': name,
+            'specialization': data['specialization'] as String? ?? '',
+            'email': data['email'] as String? ?? '',
+            'phone': data['phone'] as String? ?? '',
+            'clinicName': data['clinic_name'] as String? ?? '',
+            'clinicAddress': data['clinic_address'] as String? ?? '',
+            'inboundPhone': data['inbound_phone'] as String? ?? '',
+            'workingHours': workingHours,
+            'workingDays': workingDays,
+            'breakTime': data['break_time'] as String? ?? '',
+            'initials': initials,
+            'isAdmin': data['is_admin'] as bool? ?? false,
+          };
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   void _openEditProfile() {
     final nameCtrl = TextEditingController(text: _doctor['name'] as String);
@@ -242,11 +310,339 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  void _openOnboardDoctor() {
+    final emailCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController();
+    final nameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final clinicCtrl = TextEditingController();
+    final clinicAddrCtrl = TextEditingController();
+    final specCtrl = TextEditingController();
+    final inboundPhoneCtrl = TextEditingController();
+    final calUsernameCtrl = TextEditingController();
+    final calEventTypeCtrl = TextEditingController();
+    bool isSubmitting = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: AppTheme.surfaceLight,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Grabber
+                    Center(
+                      child: Container(
+                        margin: const EdgeInsets.only(top: 12, bottom: 8),
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: AppTheme.outlineLight,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    // Title row
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.person_add_outlined,
+                              size: 18,
+                              color: AppTheme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Onboard New Doctor',
+                            style: GoogleFonts.sora(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.onSurfaceLight,
+                            ),
+                          ),
+                          const Spacer(),
+                          GestureDetector(
+                            onTap: () => Navigator.pop(ctx),
+                            child: const Icon(
+                              Icons.close,
+                              size: 22,
+                              color: AppTheme.mutedLight,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(
+                      height: 1,
+                      color: AppTheme.outlineVariantLight,
+                    ),
+                    // Fields
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _FormSectionLabel(label: 'Account'),
+                            const SizedBox(height: 10),
+                            _EditField(
+                              label: 'Full Name *',
+                              controller: nameCtrl,
+                              icon: Icons.person_outline,
+                            ),
+                            const SizedBox(height: 12),
+                            _EditField(
+                              label: 'Email *',
+                              controller: emailCtrl,
+                              icon: Icons.email_outlined,
+                              keyboardType: TextInputType.emailAddress,
+                            ),
+                            const SizedBox(height: 12),
+                            _EditField(
+                              label: 'Password *',
+                              controller: passwordCtrl,
+                              icon: Icons.lock_outline,
+                              isPassword: true,
+                            ),
+                            const SizedBox(height: 20),
+                            _FormSectionLabel(label: 'Doctor Details'),
+                            const SizedBox(height: 10),
+                            _EditField(
+                              label: 'Specialization',
+                              controller: specCtrl,
+                              icon: Icons.medical_services_outlined,
+                            ),
+                            const SizedBox(height: 12),
+                            _EditField(
+                              label: 'Phone',
+                              controller: phoneCtrl,
+                              icon: Icons.phone_outlined,
+                              keyboardType: TextInputType.phone,
+                            ),
+                            const SizedBox(height: 20),
+                            _FormSectionLabel(label: 'Clinic'),
+                            const SizedBox(height: 10),
+                            _EditField(
+                              label: 'Clinic Name',
+                              controller: clinicCtrl,
+                              icon: Icons.local_hospital_outlined,
+                            ),
+                            const SizedBox(height: 12),
+                            _EditField(
+                              label: 'Clinic Address',
+                              controller: clinicAddrCtrl,
+                              icon: Icons.location_on_outlined,
+                            ),
+                            const SizedBox(height: 20),
+                            _FormSectionLabel(label: 'Vapi / Inbound Phone'),
+                            const SizedBox(height: 10),
+                            _EditField(
+                              label: 'Inbound Phone *',
+                              controller: inboundPhoneCtrl,
+                              icon: Icons.phone_in_talk_outlined,
+                              keyboardType: TextInputType.phone,
+                              hint: 'e.g. +14155550101',
+                            ),
+                            const SizedBox(height: 20),
+                            _FormSectionLabel(label: 'Cal.com Integration'),
+                            const SizedBox(height: 10),
+                            _EditField(
+                              label: 'Cal.com Username',
+                              controller: calUsernameCtrl,
+                              icon: Icons.calendar_today_outlined,
+                            ),
+                            const SizedBox(height: 12),
+                            _EditField(
+                              label: 'Cal.com Event Type ID',
+                              controller: calEventTypeCtrl,
+                              icon: Icons.event_outlined,
+                              keyboardType: TextInputType.number,
+                            ),
+                            const SizedBox(height: 28),
+                            // Submit button
+                            GestureDetector(
+                              onTap: isSubmitting
+                                  ? null
+                                  : () async {
+                                      final email = emailCtrl.text.trim();
+                                      final password = passwordCtrl.text.trim();
+                                      final name = nameCtrl.text.trim();
+                                      if (email.isEmpty ||
+                                          password.isEmpty ||
+                                          name.isEmpty) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Name, email and password are required',
+                                              style: GoogleFonts.sora(
+                                                color: Colors.white,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                            backgroundColor: AppTheme.error,
+                                            behavior: SnackBarBehavior.floating,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                            margin: const EdgeInsets.all(16),
+                                          ),
+                                        );
+                                        return;
+                                      }
+                                      setSheetState(() => isSubmitting = true);
+                                      try {
+                                        await ApiService().onboardDoctor({
+                                          'email': email,
+                                          'password': password,
+                                          'name': name,
+                                          'phone': phoneCtrl.text.trim(),
+                                          'clinic_name': clinicCtrl.text.trim(),
+                                          'clinic_address': clinicAddrCtrl.text
+                                              .trim(),
+                                          'specialization': specCtrl.text
+                                              .trim(),
+                                          'inbound_phone': inboundPhoneCtrl.text
+                                              .trim(),
+                                          'cal_username': calUsernameCtrl.text
+                                              .trim(),
+                                          'cal_event_type_id': calEventTypeCtrl
+                                              .text
+                                              .trim(),
+                                        });
+                                        if (ctx.mounted) {
+                                          Navigator.pop(ctx);
+                                        }
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Doctor onboarded successfully',
+                                                style: GoogleFonts.sora(
+                                                  color: Colors.white,
+                                                  fontSize: 13,
+                                                ),
+                                              ),
+                                              backgroundColor: AppTheme.success,
+                                              behavior:
+                                                  SnackBarBehavior.floating,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                              margin: const EdgeInsets.all(16),
+                                              duration: const Duration(
+                                                seconds: 3,
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                      } catch (_) {
+                                        setSheetState(
+                                          () => isSubmitting = false,
+                                        );
+                                      }
+                                    },
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isSubmitting
+                                      ? AppTheme.primary.withAlpha(120)
+                                      : AppTheme.primary,
+                                  borderRadius: BorderRadius.circular(14),
+                                  boxShadow: isSubmitting
+                                      ? []
+                                      : [
+                                          BoxShadow(
+                                            color: AppTheme.primary.withAlpha(
+                                              60,
+                                            ),
+                                            blurRadius: 12,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                ),
+                                child: Center(
+                                  child: isSubmitting
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            color: Colors.white,
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : Text(
+                                          'Onboard Doctor',
+                                          style: GoogleFonts.sora(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final List<String> workingDays = List<String>.from(
       _doctor['workingDays'] as List,
     );
+    final bool isAdmin = _doctor['isAdmin'] as bool? ?? false;
+
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: AppTheme.backgroundLight,
+        body: const Center(
+          child: CircularProgressIndicator(color: AppTheme.primary),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundLight,
@@ -350,23 +746,61 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppTheme.primaryContainer,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              _doctor['inboundPhone'] as String,
-                              style: GoogleFonts.sora(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.primary,
-                              ),
-                            ),
+                          Row(
+                            children: [
+                              if ((_doctor['inboundPhone'] as String)
+                                  .isNotEmpty) ...[
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.primaryContainer,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.phone_in_talk_outlined,
+                                        size: 11,
+                                        color: AppTheme.primary,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _doctor['inboundPhone'] as String,
+                                        style: GoogleFonts.sora(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.primary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                              if (isAdmin)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFEF3C7),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    'Admin',
+                                    style: GoogleFonts.sora(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: const Color(0xFFD97706),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ],
                       ),
@@ -398,6 +832,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     icon: Icons.phone_outlined,
                     label: 'Phone',
                     value: _doctor['phone'] as String,
+                  ),
+                  _InfoTile(
+                    icon: Icons.phone_in_talk_outlined,
+                    label: 'Inbound Phone',
+                    value: (_doctor['inboundPhone'] as String).isNotEmpty
+                        ? _doctor['inboundPhone'] as String
+                        : 'Not configured',
                     isLast: true,
                   ),
                 ],
@@ -542,6 +983,188 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ],
               ),
+              // Admin section — only visible when is_admin=true
+              if (isAdmin) ...[
+                SizedBox(height: 2.h),
+                Container(
+                  margin: EdgeInsets.symmetric(horizontal: 4.w),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceLight,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: const Color(0xFFD97706).withAlpha(80),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFD97706).withAlpha(12),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEF3C7),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Icons.admin_panel_settings_outlined,
+                                size: 16,
+                                color: Color(0xFFD97706),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'ADMIN',
+                              style: GoogleFonts.sora(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFFD97706),
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Divider(
+                        height: 1,
+                        color: AppTheme.outlineVariantLight,
+                      ),
+                      // Manage Doctors tile
+                      InkWell(
+                        onTap: () => context.push(AppRoutes.adminScreen),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryContainer,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.people_outlined,
+                                  size: 20,
+                                  color: AppTheme.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Manage Doctors',
+                                      style: GoogleFonts.sora(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppTheme.onSurfaceLight,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'View, add, edit & remove doctors',
+                                      style: GoogleFonts.sora(
+                                        fontSize: 12,
+                                        color: AppTheme.mutedLight,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.chevron_right,
+                                size: 20,
+                                color: AppTheme.mutedLight,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const Divider(
+                        height: 1,
+                        color: AppTheme.outlineVariantLight,
+                      ),
+                      // Onboard Doctor tile
+                      InkWell(
+                        onTap: _openOnboardDoctor,
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(20),
+                          bottomRight: Radius.circular(20),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryContainer,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.person_add_outlined,
+                                  size: 20,
+                                  color: AppTheme.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Onboard Doctor',
+                                      style: GoogleFonts.sora(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppTheme.onSurfaceLight,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Add a new doctor with inbound phone & Cal.com',
+                                      style: GoogleFonts.sora(
+                                        fontSize: 12,
+                                        color: AppTheme.mutedLight,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.chevron_right,
+                                size: 20,
+                                color: AppTheme.mutedLight,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                ),
+              ],
               SizedBox(height: 2.h),
               // Sign out
               Padding(
@@ -578,12 +1201,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
+class _FormSectionLabel extends StatelessWidget {
+  final String label;
+  const _FormSectionLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label.toUpperCase(),
+      style: GoogleFonts.sora(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: AppTheme.mutedLight,
+        letterSpacing: 0.8,
+      ),
+    );
+  }
+}
+
 class _EditField extends StatelessWidget {
   final String label;
   final TextEditingController controller;
   final IconData icon;
   final String? hint;
   final TextInputType? keyboardType;
+  final bool isPassword;
 
   const _EditField({
     required this.label,
@@ -591,6 +1233,7 @@ class _EditField extends StatelessWidget {
     required this.icon,
     this.hint,
     this.keyboardType,
+    this.isPassword = false,
   });
 
   @override
@@ -611,6 +1254,7 @@ class _EditField extends StatelessWidget {
         TextField(
           controller: controller,
           keyboardType: keyboardType,
+          obscureText: isPassword,
           style: GoogleFonts.sora(fontSize: 14, color: AppTheme.onSurfaceLight),
           decoration: InputDecoration(
             prefixIcon: Icon(icon, size: 18, color: AppTheme.mutedLight),

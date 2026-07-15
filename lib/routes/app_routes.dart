@@ -6,6 +6,7 @@ import '../presentation/dashboard_screen/dashboard_screen.dart';
 import '../presentation/login_screen/login_screen.dart';
 import '../presentation/patients_screen/patients_screen.dart';
 import '../presentation/profile_screen/profile_screen.dart';
+import '../presentation/admin_screen/admin_screen.dart';
 import '../widgets/app_scaffold.dart';
 
 class AppRoutes {
@@ -15,6 +16,7 @@ class AppRoutes {
   static const String appointmentsScreen = '/appointments-screen';
   static const String patientsScreen = '/patients-screen';
   static const String profileScreen = '/profile-screen';
+  static const String adminScreen = '/admin-screen';
 }
 
 final GoRouter appRouter = GoRouter(
@@ -176,6 +178,30 @@ final GoRouter appRouter = GoRouter(
           ],
         ),
       ],
+    ),
+    // Admin screen — top-level route (not in shell)
+    GoRoute(
+      path: AppRoutes.adminScreen,
+      pageBuilder: (context, state) => CustomTransitionPage(
+        key: state.pageKey,
+        child: const AdminScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return SlideTransition(
+            position:
+                Tween<Offset>(
+                  begin: const Offset(1.0, 0),
+                  end: Offset.zero,
+                ).animate(
+                  CurvedAnimation(
+                    parent: animation,
+                    curve: Curves.easeOutCubic,
+                  ),
+                ),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 280),
+      ),
     ),
   ],
 );
