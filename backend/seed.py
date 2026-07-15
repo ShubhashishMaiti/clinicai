@@ -33,6 +33,12 @@ async def run_seed():
         clinic_name="ClinicAI",
         is_admin=True,
     )
-    await db.doctors.insert_one({**admin.model_dump(), "_id": admin.doctor_id})
+
+    # Build the document and remove inbound_phone so the sparse unique index
+    # treats this document as having no value (sparse indexes skip null/missing fields).
+    doc = {**admin.model_dump(), "_id": admin.doctor_id}
+    doc.pop("inbound_phone", None)
+
+    await db.doctors.insert_one(doc)
     logger.info(f"Created admin: {ADMIN_EMAIL}")
     logger.info("Seed complete ✓")
