@@ -1,3 +1,4 @@
+import json
 import logging
 import random
 from datetime import datetime, timedelta, timezone
@@ -6,6 +7,12 @@ from typing import Any, Dict, List, Optional
 from config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _dbg(msg: str):
+    """Dual-output debug: both logger.info and print to stdout (for Render logs)."""
+    logger.info(msg)
+    print(f"[VAPI_SVC_DEBUG] {msg}", flush=True)
 
 
 # ─── Mock helpers ─────────────────────────────────────────────────────────────
@@ -36,18 +43,25 @@ async def handle_vapi_function_call(
     doctor: Dict,
 ) -> Dict:
     """Route Vapi function calls to mock or real implementation."""
-    logger.info(
-        f"[VapiService] handle_vapi_function_call: name={function_name}, "
-        f"USE_MOCK={settings.USE_MOCK_EXTERNAL}, params={parameters}"
+    _dbg(
+        f"=== handle_vapi_function_call ==="
+        f" name='{function_name}'"
+        f" USE_MOCK={settings.USE_MOCK_EXTERNAL}"
+        f" doctor_id={doctor.get('doctor_id')}"
+        f" params={json.dumps(parameters, default=str)}"
     )
     if settings.USE_MOCK_EXTERNAL:
-        return await _mock_vapi_function(function_name, parameters, doctor)
-    return await _real_vapi_function(function_name, parameters, doctor)
+        result = await _mock_vapi_function(function_name, parameters, doctor)
+    else:
+        result = await _real_vapi_function(function_name, parameters, doctor)
+    _dbg(f"handle_vapi_function_call result: {result}")
+    return result
 
 
 # ─── Mock implementation ──────────────────────────────────────────────────────
 
 async def _mock_vapi_function(function_name: str, parameters: Dict, doctor: Dict) -> Dict:
+    _dbg(f"_mock_vapi_function: {function_name}")
     if function_name == "checkAvailability":
         date = parameters.get("date", datetime.now(timezone.utc).date().isoformat())
         slots = _mock_slots(date)
@@ -78,21 +92,25 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
     db = get_db()
     doctor_id = doctor.get("doctor_id", "")
 
+    _dbg(f"_real_vapi_function: '{function_name}' for doctor={doctor_id}")
+
     # ── checkAvailability ────────────────────────────────────────────────────
     if function_name == "checkAvailability":
         date_str = parameters.get("date", datetime.now(timezone.utc).date().isoformat())
-        logger.info(f"[VapiService] checkAvailability: doctor={doctor_id}, date={date_str}")
+        _dbg(f"checkAvailability: doctor={doctor_id}, date='{date_str}'")
 
         try:
             target_date = datetime.fromisoformat(date_str).replace(
                 hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc
             )
-        except Exception:
+        except Exception as e:
+            _dbg(f"checkAvailability: failed to parse date '{date_str}': {e} — using today")
             target_date = datetime.now(timezone.utc).replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
 
         day_end = target_date + timedelta(days=1)
+        _dbg(f"checkAvailability: querying range {target_date.isoformat()} → {day_end.isoformat()}")
 
         # Fetch existing confirmed appointments for that day
         existing_appts = await db.appointments.find(
@@ -103,6 +121,7 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
             },
             {"start_time": 1, "end_time": 1, "_id": 0},
         ).to_list(length=100)
+        _dbg(f"checkAvailability: found {len(existing_appts)} existing appointments")
 
         # Fetch blocked slots for that day
         blocked = await db.blocked_slots.find(
@@ -112,6 +131,7 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
             },
             {"start_time": 1, "end_time": 1, "_id": 0},
         ).to_list(length=100)
+        _dbg(f"checkAvailability: found {len(blocked)} blocked slots")
 
         booked_starts = {
             _to_utc(a["start_time"]).strftime("%H:%M")
@@ -122,13 +142,18 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
             for b in blocked
         }
         unavailable = booked_starts | blocked_starts
+        _dbg(f"checkAvailability: unavailable times: {sorted(unavailable)}")
 
         # Build slots from doctor working hours
         wh = doctor.get("working_hours", {})
+        if not isinstance(wh, dict):
+            wh = {}
         start_h, start_m = _parse_time(wh.get("start", "09:00"))
         end_h, end_m = _parse_time(wh.get("end", "17:00"))
         break_start_h, break_start_m = _parse_time(doctor.get("break_start", "13:00"))
         break_end_h, break_end_m = _parse_time(doctor.get("break_end", "14:00"))
+
+        _dbg(f"checkAvailability: working hours {start_h}:{start_m:02d}-{end_h}:{end_m:02d}, break {break_start_h}:{break_start_m:02d}-{break_end_h}:{break_end_m:02d}")
 
         available_slots = []
         cursor = target_date.replace(hour=start_h, minute=start_m)
@@ -139,17 +164,19 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
         while cursor < end_of_day:
             slot_end = cursor + timedelta(minutes=30)
             time_label = cursor.strftime("%H:%M")
-            in_break = cursor >= break_start_dt and cursor < break_end_dt
+            in_break = break_start_dt <= cursor < break_end_dt
             if not in_break and time_label not in unavailable:
                 available_slots.append(time_label)
             cursor = slot_end
+
+        _dbg(f"checkAvailability: available_slots={available_slots}")
 
         if available_slots:
             result_str = f"Available slots on {date_str}: " + ", ".join(available_slots[:8])
         else:
             result_str = f"No available slots on {date_str}. Please try another date."
 
-        logger.info(f"[VapiService] checkAvailability result: {result_str}")
+        _dbg(f"checkAvailability result: '{result_str}'")
         return {"result": result_str}
 
     # ── bookAppointment ──────────────────────────────────────────────────────
@@ -159,9 +186,9 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
         start_time_str = parameters.get("startTime") or parameters.get("date") or ""
         reason = parameters.get("reason", "")
 
-        logger.info(
-            f"[VapiService] bookAppointment: doctor={doctor_id}, "
-            f"patient={patient_name}, phone={patient_phone}, start={start_time_str}"
+        _dbg(
+            f"bookAppointment: doctor={doctor_id}, patient='{patient_name}', "
+            f"phone='{patient_phone}', start='{start_time_str}', reason='{reason}'"
         )
 
         if not patient_phone:
@@ -172,7 +199,9 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
 
         try:
             start_time = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
-        except Exception:
+            _dbg(f"bookAppointment: parsed start_time={start_time.isoformat()}")
+        except Exception as e:
+            _dbg(f"bookAppointment: failed to parse start_time '{start_time_str}': {e}")
             return {"result": f"I couldn't understand the time '{start_time_str}'. Please provide a date and time like '2024-01-15 10:00'."}
 
         # Check the slot is still free
@@ -184,8 +213,10 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
             "status": {"$in": ["confirmed", "pending"]},
         })
         if conflict:
+            _dbg(f"bookAppointment: CONFLICT found at {start_time.isoformat()}")
             return {"result": f"The slot at {start_time.strftime('%I:%M %p')} is no longer available. Please choose another time."}
 
+        _dbg(f"bookAppointment: slot is free, confirming booking")
         return {
             "result": f"Great! I've noted your appointment for {start_time.strftime('%B %d at %I:%M %p')}. You will receive an SMS confirmation shortly.",
             "booking_id": None,
@@ -197,24 +228,28 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
         patient_phone = parameters.get("patientPhone") or parameters.get("phone") or ""
         new_time_str = parameters.get("newStartTime") or parameters.get("newTime") or parameters.get("startTime") or ""
 
-        logger.info(
-            f"[VapiService] rescheduleAppointment: doctor={doctor_id}, "
-            f"phone={patient_phone}, new_time={new_time_str}"
+        _dbg(
+            f"rescheduleAppointment: doctor={doctor_id}, "
+            f"phone='{patient_phone}', new_time='{new_time_str}'"
         )
 
         if not patient_phone:
             return {"result": "I need your phone number to find your appointment. Could you please provide it?"}
 
         # Find the most recent upcoming appointment for this patient
-        appt = await db.appointments.find_one(
+        # Motor find_one with sort requires using find().sort().limit()
+        appt_cursor = db.appointments.find(
             {
                 "doctor_id": doctor_id,
                 "patient_phone": patient_phone,
                 "status": {"$in": ["confirmed", "pending"]},
                 "start_time": {"$gte": datetime.now(timezone.utc)},
-            },
-            sort=[("start_time", 1)],
-        )
+            }
+        ).sort("start_time", 1).limit(1)
+        appts = await appt_cursor.to_list(length=1)
+        appt = appts[0] if appts else None
+
+        _dbg(f"rescheduleAppointment: found appointment: {appt is not None}")
 
         if not appt:
             return {"result": "I couldn't find an upcoming appointment for your phone number. Please check and try again."}
@@ -224,7 +259,9 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
 
         try:
             new_start = datetime.fromisoformat(new_time_str.replace("Z", "+00:00"))
-        except Exception:
+            _dbg(f"rescheduleAppointment: new_start={new_start.isoformat()}")
+        except Exception as e:
+            _dbg(f"rescheduleAppointment: failed to parse new_time '{new_time_str}': {e}")
             return {"result": f"I couldn't understand the new time '{new_time_str}'. Please provide a date and time."}
 
         new_end = new_start + timedelta(minutes=30)
@@ -241,7 +278,7 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
             },
         )
 
-        logger.info(f"[VapiService] Rescheduled appointment {appt['appointment_id']} to {new_start}")
+        _dbg(f"rescheduleAppointment: updated appointment {appt['appointment_id']} to {new_start.isoformat()}")
         return {
             "result": f"Your appointment has been rescheduled to {new_start.strftime('%B %d at %I:%M %p')}. You will receive an SMS confirmation."
         }
@@ -250,22 +287,24 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
     elif function_name == "cancelAppointment":
         patient_phone = parameters.get("patientPhone") or parameters.get("phone") or ""
 
-        logger.info(
-            f"[VapiService] cancelAppointment: doctor={doctor_id}, phone={patient_phone}"
-        )
+        _dbg(f"cancelAppointment: doctor={doctor_id}, phone='{patient_phone}'")
 
         if not patient_phone:
             return {"result": "I need your phone number to find your appointment. Could you please provide it?"}
 
-        appt = await db.appointments.find_one(
+        # Motor find_one with sort requires using find().sort().limit()
+        appt_cursor = db.appointments.find(
             {
                 "doctor_id": doctor_id,
                 "patient_phone": patient_phone,
                 "status": {"$in": ["confirmed", "pending"]},
                 "start_time": {"$gte": datetime.now(timezone.utc)},
-            },
-            sort=[("start_time", 1)],
-        )
+            }
+        ).sort("start_time", 1).limit(1)
+        appts = await appt_cursor.to_list(length=1)
+        appt = appts[0] if appts else None
+
+        _dbg(f"cancelAppointment: found appointment: {appt is not None}")
 
         if not appt:
             return {"result": "I couldn't find an upcoming appointment for your phone number."}
@@ -280,14 +319,20 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
             },
         )
 
-        logger.info(f"[VapiService] Cancelled appointment {appt['appointment_id']}")
+        appt_start = appt.get("start_time")
+        if isinstance(appt_start, datetime):
+            time_str = appt_start.strftime("%B %d at %I:%M %p")
+        else:
+            time_str = str(appt_start)
+
+        _dbg(f"cancelAppointment: cancelled appointment {appt['appointment_id']}")
         return {
-            "result": f"Your appointment on {appt['start_time'].strftime('%B %d at %I:%M %p')} has been cancelled successfully."
+            "result": f"Your appointment on {time_str} has been cancelled successfully."
         }
 
     # ── unknown function ─────────────────────────────────────────────────────
     else:
-        logger.warning(f"[VapiService] Unknown function: {function_name}")
+        _dbg(f"UNKNOWN function name: '{function_name}'")
         return {"result": "I'm sorry, I couldn't process that request. Please try again."}
 
 
