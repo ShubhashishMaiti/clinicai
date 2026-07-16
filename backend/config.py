@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 
     # Feature flags
-    USE_MOCK_EXTERNAL: bool = os.getenv("USE_MOCK_EXTERNAL", "true").lower() == "true"
+    USE_MOCK_EXTERNAL: bool = os.getenv("USE_MOCK_EXTERNAL", "false").lower() == "true"
 
     class Config:
         env_file = ".env"
