@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     VAPI_API_KEY: str = os.getenv("VAPI_API_KEY", "")
     VAPI_ASSISTANT_ID: str = os.getenv("VAPI_ASSISTANT_ID", "")
     VAPI_SERVER_SECRET: str = os.getenv("VAPI_SERVER_SECRET", "vapi-mock-secret-12345")
+    BACKEND_URL: str = os.getenv("BACKEND_URL", "https://clinicai-4zu2.onrender.com")
 
     # Cal.com
     CALCOM_API_KEY: str = os.getenv("CALCOM_API_KEY", "")

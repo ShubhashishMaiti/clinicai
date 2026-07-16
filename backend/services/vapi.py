@@ -339,7 +339,7 @@ async def _real_vapi_function(function_name: str, parameters: Dict, doctor: Dict
 # ─── Assistant overrides ──────────────────────────────────────────────────────
 
 def build_assistant_overrides(doctor: Dict) -> Dict:
-    """Build Vapi assistantOverrides with doctor-specific context."""
+    """Build Vapi assistantOverrides with doctor-specific context and full tool definitions."""
     working_hours = doctor.get("working_hours", {"start": "09:00", "end": "17:00"})
     if isinstance(working_hours, dict):
         wh_start = working_hours.get("start", "09:00")
@@ -368,6 +368,106 @@ Your job is to:
 
 Always be professional, empathetic, and efficient. If you cannot help, offer to take a message."""
 
+    # Full tool definitions — Vapi MUST receive these to know what tools exist
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "checkAvailability",
+                "description": "Check available appointment slots for a given date. Call this before booking to confirm a slot is free.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "date": {
+                            "type": "string",
+                            "description": "The date to check availability for, in ISO 8601 format (YYYY-MM-DD). Example: '2024-07-18'",
+                        }
+                    },
+                    "required": ["date"],
+                },
+            },
+            "server": {
+                "url": f"{settings.BACKEND_URL}/api/vapi/webhook",
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "bookAppointment",
+                "description": "Book an appointment for a patient. Only call after confirming the slot is available via checkAvailability.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "patientName": {
+                            "type": "string",
+                            "description": "Full name of the patient",
+                        },
+                        "patientPhone": {
+                            "type": "string",
+                            "description": "Patient's phone number including country code, e.g. +14155550100",
+                        },
+                        "startTime": {
+                            "type": "string",
+                            "description": "Appointment start time in ISO 8601 format, e.g. '2024-07-18T16:00:00'",
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "Reason for the visit or chief complaint",
+                        },
+                    },
+                    "required": ["patientName", "patientPhone", "startTime"],
+                },
+            },
+            "server": {
+                "url": f"{settings.BACKEND_URL}/api/vapi/webhook",
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "rescheduleAppointment",
+                "description": "Reschedule an existing appointment to a new date and time.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "patientPhone": {
+                            "type": "string",
+                            "description": "Patient's phone number to look up their existing appointment",
+                        },
+                        "newStartTime": {
+                            "type": "string",
+                            "description": "New appointment start time in ISO 8601 format, e.g. '2024-07-20T10:00:00'",
+                        },
+                    },
+                    "required": ["patientPhone", "newStartTime"],
+                },
+            },
+            "server": {
+                "url": f"{settings.BACKEND_URL}/api/vapi/webhook",
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "cancelAppointment",
+                "description": "Cancel an existing upcoming appointment for a patient.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "patientPhone": {
+                            "type": "string",
+                            "description": "Patient's phone number to look up their existing appointment",
+                        },
+                    },
+                    "required": ["patientPhone"],
+                },
+            },
+            "server": {
+                "url": f"{settings.BACKEND_URL}/api/vapi/webhook",
+            },
+        },
+    ]
+
     return {
         "assistantOverrides": {
             "firstMessage": (
@@ -375,7 +475,10 @@ Always be professional, empathetic, and efficient. If you cannot help, offer to 
                 f"I'm the AI receptionist for {doctor.get('name')}. How can I help you today?"
             ),
             "model": {
-                "messages": [{"role": "system", "content": system_prompt}]
+                "provider": "openai",
+                "model": "gpt-4o",
+                "messages": [{"role": "system", "content": system_prompt}],
+                "tools": tools,
             },
         }
     }

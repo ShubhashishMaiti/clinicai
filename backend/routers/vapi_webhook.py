@@ -54,13 +54,17 @@ async def vapi_webhook(request: Request):
             hashlib.sha256,
         ).hexdigest()
         _dbg(f"HMAC expected: {expected[:16]}... | received: {signature[:16]}...")
-        if not hmac.compare_digest(signature, expected):
+        if not hmac.compare_digest(expected, signature):
             _dbg(f"HMAC MISMATCH — rejecting. Expected={expected}, Got={signature}")
             raise HTTPException(
                 status_code=401,
                 detail={"code": "UNAUTHORIZED", "message": "Invalid Vapi signature"},
             )
         _dbg("HMAC verification PASSED")
+    elif not signature and settings.VAPI_SERVER_SECRET:
+        # Vapi web calls (browser SDK) do not send x-vapi-signature.
+        # Phone calls always send it. Allow through but log clearly.
+        _dbg("HMAC check SKIPPED — no signature header (web/browser call or Vapi dashboard test). Proceeding.")
     else:
         _dbg(f"HMAC check SKIPPED (signature present={bool(signature)}, secret configured={bool(settings.VAPI_SERVER_SECRET)})")
 
@@ -135,25 +139,32 @@ async def vapi_webhook(request: Request):
     if msg_type == "assistant-request":
         _dbg(f"Handling assistant-request for doctor {doctor_id}")
         overrides = build_assistant_overrides(doctor)
-        _dbg(f"Assistant overrides built: {json.dumps(overrides, default=str)[:500]}")
-        # Vapi assistant-request: respond with {"assistant": {...}} OR {"assistantId": "..."}
-        # If we have a configured assistant ID, use it with overrides
+        overrides_inner = overrides.get("assistantOverrides", {})
+        _dbg(f"Assistant overrides built (keys): {list(overrides_inner.keys())}")
+        _dbg(f"Tools count in model: {len(overrides_inner.get('model', {}).get('tools', []))}")
+
+        # Vapi assistant-request: respond with {"assistantId": "...", "assistantOverrides": {...}}
+        # assistantOverrides.model MUST include tools so Vapi knows what functions exist
         if settings.VAPI_ASSISTANT_ID:
             response = {
                 "assistantId": settings.VAPI_ASSISTANT_ID,
-                "assistantOverrides": overrides.get("assistantOverrides", {}),
+                "assistantOverrides": overrides_inner,
             }
         else:
-            # Return a full inline assistant definition
-            assistant_overrides = overrides.get("assistantOverrides", {})
+            # Return a full inline assistant definition with tools embedded
             response = {
                 "assistant": {
-                    "firstMessage": assistant_overrides.get("firstMessage", "Hello, how can I help you?"),
-                    "model": assistant_overrides.get("model", {"provider": "openai", "model": "gpt-4o"}),
+                    "firstMessage": overrides_inner.get("firstMessage", "Hello, how can I help you?"),
+                    "model": overrides_inner.get("model", {
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "tools": [],
+                    }),
                     "voice": {"provider": "11labs", "voiceId": "rachel"},
                 }
             }
-        _dbg(f"assistant-request response: {json.dumps(response, default=str)[:500]}")
+        _dbg(f"assistant-request response keys: {list(response.keys())}")
+        _dbg(f"assistant-request response (truncated): {json.dumps(response, default=str)[:1000]}")
         return response
 
     # ── function-call (Vapi v1 shape) ────────────────────────────────────────
