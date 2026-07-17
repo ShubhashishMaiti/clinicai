@@ -81,6 +81,21 @@ async def health():
     }
 
 
+@app.get("/api/warmup")
+async def warmup():
+    """Warm-up endpoint to prevent Render free-tier cold-start timeouts on Vapi assistant-request.
+    Call this endpoint periodically (e.g. every 5 minutes) to keep the instance alive."""
+    from database import get_db
+    db = get_db()
+    # Touch MongoDB so the connection pool is warm
+    try:
+        await db.doctors.find_one({}, {"_id": 1})
+        db_status = "ok"
+    except Exception as e:
+        db_status = f"error: {e}"
+    return {"status": "warm", "db": db_status}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)

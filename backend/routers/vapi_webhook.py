@@ -143,24 +143,27 @@ async def vapi_webhook(request: Request):
         _dbg(f"Assistant overrides built (keys): {list(overrides_inner.keys())}")
         _dbg(f"Tools count in model: {len(overrides_inner.get('model', {}).get('tools', []))}")
 
-        # Vapi assistant-request: respond with {"assistantId": "...", "assistantOverrides": {...}}
-        # assistantOverrides.model MUST include tools so Vapi knows what functions exist
+        # Vapi ServerMessageResponse requires top-level "messageResponse" wrapper
         if settings.VAPI_ASSISTANT_ID:
             response = {
-                "assistantId": settings.VAPI_ASSISTANT_ID,
-                "assistantOverrides": overrides_inner,
+                "messageResponse": {
+                    "assistantId": settings.VAPI_ASSISTANT_ID,
+                    "assistantOverrides": overrides_inner,
+                }
             }
         else:
             # Return a full inline assistant definition with tools embedded
             response = {
-                "assistant": {
-                    "firstMessage": overrides_inner.get("firstMessage", "Hello, how can I help you?"),
-                    "model": overrides_inner.get("model", {
-                        "provider": "openai",
-                        "model": "gpt-4o",
-                        "tools": [],
-                    }),
-                    "voice": {"provider": "11labs", "voiceId": "rachel"},
+                "messageResponse": {
+                    "assistant": {
+                        "firstMessage": overrides_inner.get("firstMessage", "Hello, how can I help you?"),
+                        "model": overrides_inner.get("model", {
+                            "provider": "openai",
+                            "model": "gpt-4o",
+                            "tools": [],
+                        }),
+                        "voice": {"provider": "11labs", "voiceId": "rachel"},
+                    }
                 }
             }
         _dbg(f"assistant-request response keys: {list(response.keys())}")
@@ -182,7 +185,7 @@ async def vapi_webhook(request: Request):
         if function_name == "bookAppointment":
             await _handle_booking(db, doctor, parameters, result)
 
-        response = {"result": result.get("result", "Done")}
+        response = {"messageResponse": {"result": result.get("result", "Done")}}
         _dbg(f"Returning function-call response: {response}")
         return response
 
@@ -212,7 +215,7 @@ async def vapi_webhook(request: Request):
                 "result": result.get("result", "Done"),
             })
 
-        response = {"results": results}
+        response = {"messageResponse": {"results": results}}
         _dbg(f"Returning tool-calls response: {response}")
         return response
 
@@ -255,8 +258,10 @@ async def vapi_webhook(request: Request):
         if settings.VAPI_ASSISTANT_ID:
             overrides = build_assistant_overrides(doctor)
             return {
-                "assistantId": settings.VAPI_ASSISTANT_ID,
-                "assistantOverrides": overrides.get("assistantOverrides", {}),
+                "messageResponse": {
+                    "assistantId": settings.VAPI_ASSISTANT_ID,
+                    "assistantOverrides": overrides.get("assistantOverrides", {}),
+                }
             }
         return {"received": True}
 
